@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 
 import rospy
 import roslib
@@ -36,7 +37,6 @@ class Marker_detect():
 
 
 		# Printing the detected markers on terminal
-
 		print ("\nWhyCon_marker",self.whycon_marker)
 		print ("ArUco_marker",self.aruco_marker)
 
