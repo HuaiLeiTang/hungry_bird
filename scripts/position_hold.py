@@ -1,4 +1,4 @@
-#!/usr/bin/env pytho
+#!/usr/bin/env python
 """
 Submission: Hungry Bird Team 2334
 
@@ -89,13 +89,13 @@ class Edrone:
 
         self.cmd = PlutoMsg()
 
-        self.sample_time = 0.060
-        self.Kp = np.array([0.075, 0.075, 0, 1.0])
-        self.Ki = np.array([0.075, 0.075, 0, 0])
-        self.Kd = np.array([0.0125, 0.0125, 0, 0])
+        self.sample_time = 0.60
+        self.Kp = np.array([0.04, 0.04, 0.04, 0])
+        self.Ki = np.array([0.0, 0.0, 0.02, 0])
+        self.Kd = np.array([0.0125, 0.0125, 0.01, 0])
         self.max_values = np.array([1800, 1800, 1800, 1800])
         self.min_values = np.array([1200, 1200, 1200, 1200])
-        self.base_values = np.array([1500, 1500, 1500, 1500])
+        self.base_values = np.array([1500, 1500, 1400, 1500])
 
         self.current_time = time.time()
         self.previous_time = time.time()
@@ -108,7 +108,7 @@ class Edrone:
             self.error_publishers.append(rospy.Publisher('/%s_error' % axis, Float64, queue_size=1))
 
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
-        rospy.Subscriber('/drone_yaw', PoseArray, self._yaw_callback)
+        rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
 
         for index, axis in enumerate(self.sense_axes):
             rospy.Subscriber('/pid_tuning_%s' % axis, PidTune, lambda msg: self._set_pid(msg, index))
@@ -149,6 +149,7 @@ class Edrone:
         self.disarm()
 
     def _yaw_callback(self, msg):
+        print(msg)
         if 'yaw' in self.cartesian_axes:
             self.drone_position[self.cartesian_axes.index('yaw')] = msg.data
         else:
@@ -156,10 +157,11 @@ class Edrone:
 
     def _whycon_callback(self, msg):
         for axis in ('x', 'y', 'z'):
-            if axis in self.carteswhycon_callbackian_axes:
+            if axis in self.cartesian_axes:
                 self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
             else:
                 self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
+        self.drone_position[2] /= 1000
 
     def _set_pid(self, msg, index):
         self.Kp[index] = msg.Kp * 0.06
@@ -170,7 +172,7 @@ class Edrone:
         """
         Send a command to the drone.
         All the arguments are optional, if called without any argument, it stabilizes drone to neutral position.
-         
+
         """
         self.cmd.rcThrottle = throttle
         self.cmd.rcRoll = roll
@@ -185,7 +187,6 @@ class Edrone:
         for index, axis in enumerate(self.sense_axes):
             msg.data = error[index]
             self.error_publishers[index].publish(msg)
-        print(error)
 
     def _calculate_response(self, error):
         dt = self.current_time - self.previous_time
@@ -199,9 +200,11 @@ class Edrone:
         """
         PID Controller implementation
         """
+        print(self.drone_position)
         self.current_time = time.time()
         if self.sample_time > self.current_time - self.previous_time:
             error = self.setpoint - self.drone_position
+            print(error)
             self.publish_error(error)
             response = self._calculate_response(error)
             self.publish_command(**dict(zip(self.control_axes, response)))
@@ -215,6 +218,7 @@ class Edrone:
         self.setpoint = setpoint
         while not rospy.is_shutdown():
             self.pid()
+            pass
 
 
 if __name__ == '__main__':
