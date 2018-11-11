@@ -56,6 +56,9 @@ class Edrone:
     >>> my_drone.disarm()  # Disarm Drone
     Disarmed
 
+    >>> my_drone.land()
+    Disarmed
+
     >>> my_drone.arm() # Ready For Action
     Armed
 
@@ -74,7 +77,7 @@ class Edrone:
     control_axes = ('pitch', 'roll', 'throttle', 'yaw')
 
     # You can change the order here if there is a mismatch in coordinate systems. Use x* etc to give negative axis
-    cartesian_axes = ('x', 'y', 'z', 'yaw')
+    cartesian_axes = ('x*', 'y*', 'z', 'yaw')
 
     def __init__(self):
         """
@@ -89,13 +92,13 @@ class Edrone:
 
         self.cmd = PlutoMsg()
 
-        self.sample_time = 0.60
-        self.Kp = np.array([0.04, 0.04, 0.04, 0])
-        self.Ki = np.array([0.0, 0.0, 0.02, 0])
-        self.Kd = np.array([0.0125, 0.0125, 0.01, 0])
-        self.max_values = np.array([1800, 1800, 1800, 1800])
-        self.min_values = np.array([1200, 1200, 1200, 1200])
-        self.base_values = np.array([1500, 1500, 1400, 1500])
+        self.sample_time = 0.060
+        self.Kp = np.array([20, 20, 0.20, 0])
+        self.Ki = np.array([0.0, 0.0, 0.0, 0])
+        self.Kd = np.array([0.0, 0.0, 0, 0])
+        self.max_values = np.array([1800, 1800, 1550, 1800])
+        self.min_values = np.array([1200, 1200, 1400, 1200])
+        self.base_values = np.array([1500, 1500, 1498, 1500])
 
         self.current_time = time.time()
         self.previous_time = time.time()
@@ -149,7 +152,8 @@ class Edrone:
         self.disarm()
 
     def _yaw_callback(self, msg):
-        print(msg)
+        #h=-msg.data
+        
         if 'yaw' in self.cartesian_axes:
             self.drone_position[self.cartesian_axes.index('yaw')] = msg.data
         else:
@@ -161,7 +165,8 @@ class Edrone:
                 self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
             else:
                 self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
-        self.drone_position[2] /= 1000
+        self.drone_position[:2]/=7.55   # Experimental Constant
+        self.drone_position[2]=-self.drone_position[2]*.0549+3.037
 
     def _set_pid(self, msg, index):
         self.Kp[index] = msg.Kp * 0.06
@@ -200,15 +205,17 @@ class Edrone:
         """
         PID Controller implementation
         """
-        print(self.drone_position)
+        
         self.current_time = time.time()
-        if self.sample_time > self.current_time - self.previous_time:
+        if self.sample_time < self.current_time - self.previous_time:
             error = self.setpoint - self.drone_position
+            print(self.drone_position)
+            print(self.setpoint)
             print(error)
             self.publish_error(error)
             response = self._calculate_response(error)
             self.publish_command(**dict(zip(self.control_axes, response)))
-        self.previous_time = self.current_time
+            self.previous_time = self.current_time
 
     def reach_target(self, setpoint):
         """
@@ -226,4 +233,5 @@ if __name__ == '__main__':
     Task 1.1
     """
     e_drone = Edrone()
+  #  e_drone.publish_command(pitch=1600)
     e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))
