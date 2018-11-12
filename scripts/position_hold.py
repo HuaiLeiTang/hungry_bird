@@ -18,7 +18,6 @@ from __future__ import print_function, division
 
 import time
 
-import numpy as np
 import rospy
 from geometry_msgs.msg import PoseArray
 from pid_tune.msg import PidTune
@@ -26,7 +25,8 @@ from plutodrone.msg import *
 from std_msgs.msg import Float64
 from std_msgs.msg import Int16
 from std_msgs.msg import Int64
-
+import numpy as np
+np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
 
 class Edrone:
     """
@@ -92,13 +92,13 @@ class Edrone:
 
         self.cmd = PlutoMsg()
 
-        self.sample_time = 0.060
-        self.Kp = np.array([20, 20, 0.20, 0])
+        self.sample_time = 0.10
+        self.Kp = np.array([20, 20, 6, 0])
         self.Ki = np.array([0.0, 0.0, 0.0, 0])
-        self.Kd = np.array([0.0, 0.0, 0, 0])
-        self.max_values = np.array([1800, 1800, 1550, 1800])
-        self.min_values = np.array([1200, 1200, 1400, 1200])
-        self.base_values = np.array([1500, 1500, 1498, 1500])
+        self.Kd = np.array([0.0, 0.0, 6, 0])
+        self.max_values = np.array([1800, 1800, 1800, 1800])
+        self.min_values = np.array([1200, 1200, 1200, 1200])
+        self.base_values = np.array([1500, 1500, 1500, 1500])
 
         self.current_time = time.time()
         self.previous_time = time.time()
@@ -151,9 +151,7 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def _yaw_callback(self, msg):
-        #h=-msg.data
-        
+    def _yaw_callback(self, msg):        
         if 'yaw' in self.cartesian_axes:
             self.drone_position[self.cartesian_axes.index('yaw')] = msg.data
         else:
@@ -165,8 +163,8 @@ class Edrone:
                 self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
             else:
                 self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
-        self.drone_position[:2]/=7.55   # Experimental Constant
-        self.drone_position[2]=-self.drone_position[2]*.0549+3.037
+        self.drone_position[:2]/=7.55   # Experimental Constant for scaling
+        self.drone_position[2]=-self.drone_position[2]*.0549+3.037  # Experimental Constant for scaling
 
     def _set_pid(self, msg, index):
         self.Kp[index] = msg.Kp * 0.06
@@ -177,7 +175,6 @@ class Edrone:
         """
         Send a command to the drone.
         All the arguments are optional, if called without any argument, it stabilizes drone to neutral position.
-
         """
         self.cmd.rcThrottle = throttle
         self.cmd.rcRoll = roll
@@ -196,16 +193,20 @@ class Edrone:
     def _calculate_response(self, error):
         dt = self.current_time - self.previous_time
         de = error - self.previous_error
+        self.previous_error=error
         self.cumulative_error += error * dt
         response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * de / dt
+        print('Kp', self.Kp * error )
+        print('Kd',self.Kd * de / dt)
+        print('Ki',self.Ki* self.cumulative_error)
+        print('dt',dt)
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
 
     def pid(self):
         """
         PID Controller implementation
-        """
-        
+        """        
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             error = self.setpoint - self.drone_position
