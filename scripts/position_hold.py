@@ -94,9 +94,9 @@ class Edrone:
         self.sample_time = 0.10
         self.Kp = np.array([30, 30, 40, 0])
         self.Ki = np.array([60, 60, 50, 0])
-        self.Kd = np.array([0.0, 0.0, 350, 0])
-        self.max_values = np.array([1800, 1800, 1800, 1800])
-        self.min_values = np.array([1200, 1200, 1200, 1200])
+        self.Kd = np.array([0, 0, 350, 0])
+        self.max_values = np.array([1515, 1515, 1800, 1800])
+        self.min_values = np.array([1485, 1485, 1200, 1200])
         self.base_values = np.array([1500, 1500, 1500, 1500])
         self.max_Ki_margin = np.array([.05,.05, .04, 0.0])
         self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
@@ -188,7 +188,7 @@ class Edrone:
         self.cmd.rcYaw = yaw
         self.cmd.rcAUX4 = aux4
         self.command_publisher.publish(self.cmd)
-        print(self.cmd)
+        #print(self.cmd)
 
     def publish_error(self, error):
         msg = Float64()
@@ -202,10 +202,10 @@ class Edrone:
         self.previous_error=error
         self.cumulative_error = np.where((self.min_Ki_margin<abs(error)) & (abs(error)<self.max_Ki_margin),self.cumulative_error+error * dt,0) 
         response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
-        print('Kp', self.Kp * error )
-        print('Kd',self.Kd * de / dt)
-        print('Ki',self.Ki* self.cumulative_error)
-        print('dt',dt)
+        #print('Kp', self.Kp * error )
+        #print('Kd',self.Kd * de / dt)
+        #print('Ki',self.Ki* self.cumulative_error)
+        #print('dt',dt)
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
 
@@ -216,9 +216,9 @@ class Edrone:
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             error = self.setpoint - self.drone_position
-            print(self.drone_position)
-            print(self.setpoint)
-            print(error)
+            #print(self.drone_position)
+            #print(self.setpoint)
+            #print(error)
             self.publish_error(error)
             response = self._calculate_response(error)
             self.publish_command(**dict(zip(self.control_axes, response)))
