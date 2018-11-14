@@ -2,9 +2,9 @@
 """
 Submission: Hungry Bird Team 2334
 
-This python file runs a ROS-node of name drone_control which holds the position of e-Drone on the given dummy.
+This python file runs a ROS-node of name drone_control which holds the position of e-Drone on the given target dummy.
 
-This node publishes and subsribes the following topics:
+This node publishes and subscribes the following topics:
         PUBLICATIONS            SUBSCRIPTIONS
         /drone_command          /whycon/poses
         /alt_error              /pid_tuning_altitude
@@ -12,6 +12,20 @@ This node publishes and subsribes the following topics:
         /roll_error             /pid_tuning_roll
         /yaw_error              /pid_tuning_yaw
                                 /drone_yaw
+
+Code Description:
+This file contains the Edrone class which is used to send commands to simulated drone through ROS interface by
+publishing to the drone_command topic.It also publishes all the error topics to report the error in all the axes.
+It subscribes the whycon/poses and drone_yaw topics to obtain the drone coordinates and orientation respectively.
+It also subscribes to pid_tuning topics to change the pid values externally.
+
+How it works:
+Edrone receives real time coordinates through the respective callbacks in the background.Then it also runs a continuous
+loop in the reach_target function where it calculates the error and the pid response values.The pid algorithm is 
+modified such that the integral coefficient only appears in a set range of errors in order to avoid reset integral
+windup.Also the pid output response is clipped within a set of predetermined maximum and minimum values.We used numpy
+internally to avoid code reduplication.
+
 """
 
 from __future__ import print_function, division
@@ -26,7 +40,9 @@ from std_msgs.msg import Float64
 from std_msgs.msg import Int16
 from std_msgs.msg import Int64
 import numpy as np
-np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
+
+np.set_printoptions(formatter={'float': '{: 0.3f}'.format})  # set global printing options for numpy
+
 
 class Edrone:
     """
@@ -41,10 +57,10 @@ class Edrone:
     Armed
     Initialized Drone
 
-    >>> my_drone.publish_command(throttle = 1550)
+    >>> my_drone.publish_command(throttle = 1550) #base value is 1500
     <Publisher Output>
 
-    >>> my_drone.publish_command(roll=1550)
+    >>> my_drone.publish_command(roll=1550)  #base value is 1500
     <Publisher Output>
 
     >>> my_drone.publish_command() # Return the drone to equilibrium
@@ -88,14 +104,12 @@ class Edrone:
         """
         rospy.init_node('drone_control')
 
-
-        
         # CONTROLLER CONSTANTS
         self.sample_time = 0.10
         self.Kp = np.array([30, 30, 40, 0])
         self.Ki = np.array([70, 70, 50, 0])
         self.Kd = np.array([0, 0, 350, 0])
-        self.max_Ki_margin = np.array([.05,.05, .04, 0.0])
+        self.max_Ki_margin = np.array([.05, .05, .04, 0.0])
         self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
         self.max_values = np.array([1515, 1515, 1800, 1800])
         self.min_values = np.array([1485, 1485, 1200, 1200])
@@ -131,7 +145,7 @@ class Edrone:
         Use land() if soft landing is required.
         """
         rospy.sleep(1)
-        self.publish_command(aux4=1000)
+        self.publish_command(aux4=1000)  # aux4 is used to arm and disarm the drone
         rospy.sleep(1)
         print('Disarmed')
 
@@ -157,22 +171,31 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def _yaw_callback(self, msg):        
+    def _yaw_callback(self, msg):
+        """
+        Callback for orientation
+        """
         if 'yaw' in self.cartesian_axes:
             self.drone_position[self.cartesian_axes.index('yaw')] = msg.data
         else:
             self.drone_position[self.cartesian_axes.index('yaw*')] = - msg.data
 
     def _whycon_callback(self, msg):
+        """
+        Callback for coordinates
+        """
         for axis in ('x', 'y', 'z'):
             if axis in self.cartesian_axes:
                 self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
             else:
                 self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
-        self.drone_position[:2]/=7.55   # Experimental Constant for scaling
-        self.drone_position[2]=-self.drone_position[2]*.0549+3.037  # Experimental Constant for scaling
+        self.drone_position[:2] /= 7.55  # Experimental Constant for scaling
+        self.drone_position[2] = -self.drone_position[2] * .0549 + 3.037  # Experimental Constant for scaling
 
     def _set_pid(self, msg, index):
+        """
+        Callback for setting pid externally
+        """
         self.Kp[index] = msg.Kp * 0.06
         self.Ki[index] = msg.Ki * 0.008
         self.Kd[index] = msg.Kd * 0.3
@@ -188,37 +211,37 @@ class Edrone:
         self.cmd.rcYaw = yaw
         self.cmd.rcAUX4 = aux4
         self.command_publisher.publish(self.cmd)
-        #print(self.cmd)
 
     def publish_error(self, error):
+        """
+        Publish error values to respective topics 
+        """
         msg = Float64()
         for index, axis in enumerate(self.sense_axes):
             msg.data = error[index]
             self.error_publishers[index].publish(msg)
 
     def _calculate_response(self, error):
+        """
+        PID algorithm
+        """
         dt = self.current_time - self.previous_time
         de = error - self.previous_error
-        self.previous_error=error
-        self.cumulative_error = np.where((self.min_Ki_margin<abs(error)) & (abs(error)<self.max_Ki_margin),self.cumulative_error+error * dt,0) 
+        self.previous_error = error
+        # Condition for integral coefficient to remove reset integral windup
+        self.cumulative_error = np.where((self.min_Ki_margin < abs(error)) & (abs(error) < self.max_Ki_margin),
+                                         self.cumulative_error + error * dt, 0)
         response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
-        #print('Kp', self.Kp * error )
-        #print('Kd',self.Kd * de / dt)
-        #print('Ki',self.Ki* self.cumulative_error)
-        #print('dt',dt)
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
 
     def pid(self):
         """
         PID Controller implementation
-        """        
+        """
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             error = self.setpoint - self.drone_position
-            #print(self.drone_position)
-            #print(self.setpoint)
-            #print(error)
             self.publish_error(error)
             response = self._calculate_response(error)
             self.publish_command(**dict(zip(self.control_axes, response)))
@@ -232,7 +255,6 @@ class Edrone:
         self.setpoint = setpoint
         while not rospy.is_shutdown():
             self.pid()
-            pass
 
 
 if __name__ == '__main__':
@@ -241,4 +263,3 @@ if __name__ == '__main__':
     """
     e_drone = Edrone()
     e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))
-
