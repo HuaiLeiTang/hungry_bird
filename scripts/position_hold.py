@@ -93,13 +93,13 @@ class Edrone:
         # CONTROLLER CONSTANTS
         self.sample_time = 0.10
         self.Kp = np.array([30, 30, 40, 0])
-        self.Ki = np.array([60, 60, 50, 0])
+        self.Ki = np.array([70, 70, 50, 0])
         self.Kd = np.array([0, 0, 350, 0])
+        self.max_Ki_margin = np.array([.05,.05, .04, 0.0])
+        self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
         self.max_values = np.array([1515, 1515, 1800, 1800])
         self.min_values = np.array([1485, 1485, 1200, 1200])
         self.base_values = np.array([1500, 1500, 1500, 1500])
-        self.max_Ki_margin = np.array([.05,.05, .04, 0.0])
-        self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
 
         # STATE VARIABLES
         self.setpoint = np.zeros(4)
