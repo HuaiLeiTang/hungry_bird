@@ -87,24 +87,30 @@ class Edrone:
         Some initial values for the PID controller are defined here
         """
         rospy.init_node('drone_control')
-        self.setpoint = np.zeros(4)
-        self.drone_position = np.zeros(4)
 
-        self.cmd = PlutoMsg()
 
+        
+        # CONTROLLER CONSTANTS
         self.sample_time = 0.10
-        self.Kp = np.array([20, 20, 6, 0])
-        self.Ki = np.array([0.0, 0.0, 0.0, 0])
-        self.Kd = np.array([0.0, 0.0, 6, 0])
+        self.Kp = np.array([30, 30, 40, 0])
+        self.Ki = np.array([30, 30, 30, 0])
+        self.Kd = np.array([0.0, 0.0, 400, 0])
         self.max_values = np.array([1800, 1800, 1800, 1800])
         self.min_values = np.array([1200, 1200, 1200, 1200])
         self.base_values = np.array([1500, 1500, 1500, 1500])
+        self.max_Ki_margin = np.array([.1,.1, .08, 0])
+        self.min_Ki_margin = np.array([0.0, 0.0, 400, 0])
 
+        # STATE VARIABLES
+        self.setpoint = np.zeros(4)
+        self.drone_position = np.zeros(4)
         self.current_time = time.time()
         self.previous_time = time.time()
         self.previous_error = np.zeros(4)
         self.cumulative_error = np.zeros(4)
 
+        # I/O INITIALIZATION
+        self.cmd = PlutoMsg()
         self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=0)
         self.error_publishers = []
         for axis in self.sense_axes:
@@ -146,7 +152,7 @@ class Edrone:
         Stabilize the drone and then slowly decrease throttle
         """
         self.publish_command()
-        for throttle in range(1500, 1100, -100):
+        for throttle in range(1500, 1400, -10):
             self.publish_command(throttle=throttle)
             rospy.sleep(.5)
         self.disarm()
@@ -194,8 +200,8 @@ class Edrone:
         dt = self.current_time - self.previous_time
         de = error - self.previous_error
         self.previous_error=error
-        self.cumulative_error += error * dt
-        response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * de / dt
+        self.cumulative_error = np.where((self.min_Ki_margin<abs(error) & (abs(error)<self.max_Ki_margin)),self.cumulative_error+error * dt,0) 
+        response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         print('Kp', self.Kp * error )
         print('Kd',self.Kd * de / dt)
         print('Ki',self.Ki* self.cumulative_error)
@@ -234,5 +240,5 @@ if __name__ == '__main__':
     Task 1.1
     """
     e_drone = Edrone()
-  #  e_drone.publish_command(pitch=1600)
     e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))
+
