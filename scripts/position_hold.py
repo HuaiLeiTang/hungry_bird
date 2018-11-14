@@ -93,13 +93,13 @@ class Edrone:
         # CONTROLLER CONSTANTS
         self.sample_time = 0.10
         self.Kp = np.array([30, 30, 40, 0])
-        self.Ki = np.array([30, 30, 30, 0])
-        self.Kd = np.array([0.0, 0.0, 400, 0])
+        self.Ki = np.array([60, 60, 50, 0])
+        self.Kd = np.array([0.0, 0.0, 350, 0])
         self.max_values = np.array([1800, 1800, 1800, 1800])
         self.min_values = np.array([1200, 1200, 1200, 1200])
         self.base_values = np.array([1500, 1500, 1500, 1500])
-        self.max_Ki_margin = np.array([.1,.1, .08, 0])
-        self.min_Ki_margin = np.array([0.0, 0.0, 400, 0])
+        self.max_Ki_margin = np.array([.05,.05, .04, 0.0])
+        self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
 
         # STATE VARIABLES
         self.setpoint = np.zeros(4)
@@ -200,7 +200,7 @@ class Edrone:
         dt = self.current_time - self.previous_time
         de = error - self.previous_error
         self.previous_error=error
-        self.cumulative_error = np.where((self.min_Ki_margin<abs(error) & (abs(error)<self.max_Ki_margin)),self.cumulative_error+error * dt,0) 
+        self.cumulative_error = np.where((self.min_Ki_margin<abs(error)) & (abs(error)<self.max_Ki_margin),self.cumulative_error+error * dt,0) 
         response = self.Kp * error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         print('Kp', self.Kp * error )
         print('Kd',self.Kd * de / dt)
