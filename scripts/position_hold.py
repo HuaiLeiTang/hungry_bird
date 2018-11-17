@@ -23,23 +23,20 @@ How it works:
 Edrone receives real time coordinates through the respective callbacks in the background.Then it also runs a continuous
 loop in the reach_target function where it calculates the error and the pid response values.The pid algorithm is
 modified such that the integral coefficient only appears in a set range of errors in order to avoid reset integral
-windup.Also the pid output response is clipped within a set of predetermined maximum and minimum values.We used numpy
+windup. Also the pid output response is clipped within a set of predetermined maximum and minimum values. We used numpy
 internally to avoid code reduplication.
-
 """
 
 from __future__ import print_function, division
 
 import time
 
+import numpy as np
 import rospy
 from geometry_msgs.msg import PoseArray
 from pid_tune.msg import PidTune
 from plutodrone.msg import *
 from std_msgs.msg import Float64
-from std_msgs.msg import Int16
-from std_msgs.msg import Int64
-import numpy as np
 
 # set global printing options for numpy
 np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
@@ -73,23 +70,21 @@ class Edrone:
     >>> my_drone.disarm()  # Disarm Drone
     Disarmed
 
-    >>> my_drone.land()
-    Disarmed
-
     >>> my_drone.arm() # Ready For Action
     Armed
+
+    >>> my_drone.land()
+    Disarmed
 
 
     Regarding Coordinate Systems:
     Internally the coordinates or poses of the drone are represented as numpy arrays in the order given by the
     sense_axes and control_axes variable. This ordering does not change.
-    The order of the coordinates is dictated by the cartesian_axes variable which may be changed if there is a mismatch
+    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed if there is a mismatch
     in the physical orientation of coordinate systems. Currently 'pitch' corresponds to x-axis and so on.
-
     """
 
-    # Ordering of values in numpy arrays used internally to represent pose.These orders should not be changed as
-    # it is the order of  values in the numpy array, which are hardcoded
+    # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
     sense_axes = ('pitch', 'roll', 'altitude', 'yaw')
     control_axes = ('pitch', 'roll', 'throttle', 'yaw')
 
@@ -107,6 +102,7 @@ class Edrone:
         rospy.init_node('drone_control')
 
         # CONTROLLER CONSTANTS
+        # To be read as ['pitch', 'roll', 'altitude', 'yaw']
         self.sample_time = 0.10
         self.Kp = np.array([30, 30, 40, 0])
         self.Ki = np.array([70, 70, 50, 0])
@@ -124,17 +120,14 @@ class Edrone:
         self.previous_time = time.time()
         self.previous_error = np.zeros(4)
         self.cumulative_error = np.zeros(4)
+        self.error = np.zeros(4)
 
         # I/O INITIALIZATION
         self.cmd = PlutoMsg()
-        self.command_publisher = rospy.Publisher(
-            '/drone_command', PlutoMsg, queue_size=0)
+        self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=0)
         self.error_publishers = []
         for axis in self.sense_axes:
-            self.error_publishers.append(
-                rospy.Publisher(
-                    '/%s_error' %
-                    axis, Float64, queue_size=1))
+            self.error_publishers.append(rospy.Publisher('/%s_error' % axis, Float64, queue_size=1))
 
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
         rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
@@ -144,7 +137,7 @@ class Edrone:
                 '/pid_tuning_%s' %
                 axis,
                 PidTune,
-                lambda msg: self._set_pid(
+                lambda msg: self._set_pid_callback(
                     msg,
                     index))
         self.arm()
@@ -204,11 +197,12 @@ class Edrone:
             else:
                 self.drone_position[self.cartesian_axes.index(
                     axis + '*')] = - getattr(msg.poses[0].position, axis)
-        self.drone_position[:2] /= 7.55  # Experimental Constant for scaling
+        # Experimental Constant for scaling
+        self.drone_position[:2] /= 7.55
         # Experimental Constant for scaling
         self.drone_position[2] = -self.drone_position[2] * .0549 + 3.037
 
-    def _set_pid(self, msg, index):
+    def _set_pid_callback(self, msg, index):
         """
         Callback for setting pid externally
         """
@@ -234,27 +228,29 @@ class Edrone:
         self.cmd.rcAUX4 = aux4
         self.command_publisher.publish(self.cmd)
 
-    def publish_error(self, error):
+    def publish_error(self):
         """
-        Publish error values to respective topics
+        Publish current error values to respective topics
         """
         msg = Float64()
         for index, axis in enumerate(self.sense_axes):
-            msg.data = error[index]
+            msg.data = self.error[index]
             self.error_publishers[index].publish(msg)
 
-    def _calculate_response(self, error):
+    def is_reached(self):
+        return self.setpoint - self
+
+    def _calculate_response(self, ):
         """
         PID algorithm
         """
         dt = self.current_time - self.previous_time
-        de = error - self.previous_error
-        self.previous_error = error
+        de = self.error - self.previous_error
+        self.previous_error = self.error
         # Condition for integral coefficient to remove reset integral windup
-        self.cumulative_error = np.where((self.min_Ki_margin < abs(error)) & (
-            abs(error) < self.max_Ki_margin), self.cumulative_error + error * dt, 0)
-        response = self.Kp * error + self.Ki * \
-            self.cumulative_error + self.Kd * (de / dt)
+        self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
+                abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+        response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
 
@@ -264,9 +260,9 @@ class Edrone:
         """
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
-            error = self.setpoint - self.drone_position
-            self.publish_error(error)
-            response = self._calculate_response(error)
+            self.error = self.setpoint - self.drone_position
+            self.publish_error()
+            response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
 
