@@ -123,12 +123,16 @@ class Edrone:
         self.error = np.zeros(4)
 
         # I/O INITIALIZATION
-        self.cmd = PlutoMsg()
+        self.cmd_msg = PlutoMsg()
+        self.error_msg = Float64()
+
+        # PUBLISHERS
         self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=0)
         self.error_publishers = []
         for axis in self.sense_axes:
             self.error_publishers.append(rospy.Publisher('/%s_error' % axis, Float64, queue_size=1))
 
+        # SUBSCRIBERS
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
         rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
 
@@ -221,24 +225,20 @@ class Edrone:
         Send a command to the drone.
         All the arguments are optional, if called without any argument, it stabilizes drone to neutral position.
         """
-        self.cmd.rcThrottle = throttle
-        self.cmd.rcRoll = roll
-        self.cmd.rcPitch = pitch
-        self.cmd.rcYaw = yaw
-        self.cmd.rcAUX4 = aux4
-        self.command_publisher.publish(self.cmd)
+        self.cmd_msg.rcThrottle = throttle
+        self.cmd_msg.rcRoll = roll
+        self.cmd_msg.rcPitch = pitch
+        self.cmd_msg.rcYaw = yaw
+        self.cmd_msg.rcAUX4 = aux4
+        self.command_publisher.publish(self.cmd_msg)
 
     def publish_error(self):
         """
         Publish current error values to respective topics
         """
-        msg = Float64()
         for index, axis in enumerate(self.sense_axes):
-            msg.data = self.error[index]
-            self.error_publishers[index].publish(msg)
-
-    def is_reached(self):
-        return self.setpoint - self
+            self.error_msg.data = self.error[index]
+            self.error_publishers[index].publish(self.error_msg)
 
     def _calculate_response(self, ):
         """
@@ -252,6 +252,7 @@ class Edrone:
                 abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         response += self.base_values
+        # Clip to maximum and minimum values
         return np.clip(response, self.min_values, self.max_values)
 
     def pid(self):
