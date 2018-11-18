@@ -33,10 +33,11 @@ import time
 
 import numpy as np
 import rospy
-from geometry_msgs.msg import PoseArray
+from geometry_msgs.msg import PoseArray, Pose
 from pid_tune.msg import PidTune
-from plutodrone.msg import *
+from plutodrone.msg import PlutoMsg
 from std_msgs.msg import Float64
+from utility import to_pose
 
 # set global printing options for numpy
 np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
@@ -90,7 +91,19 @@ class Edrone:
 
     # You can change the order here if there is a mismatch in coordinate
     # systems. Use x* etc to give negative axis
-    cartesian_axes = ('x*', 'y*', 'z', 'yaw')
+    cartesian_axes = ('x', 'y', 'z', 'yaw')
+
+    # CONTROLLER CONSTANTS
+    # To be read as ['pitch', 'roll', 'altitude', 'yaw']
+    sample_time = 0.10
+    Kp = np.array([30, 30, 40, 0])
+    Ki = np.array([70, 70, 50, 0])
+    Kd = np.array([0, 0, 350, 0])
+    max_Ki_margin = np.array([.05, .05, .04, 0.0])
+    min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
+    max_values = np.array([1515, 1515, 1800, 1800])
+    min_values = np.array([1485, 1485, 1200, 1200])
+    base_values = np.array([1500, 1500, 1500, 1500])
 
     def __init__(self):
         """
@@ -101,20 +114,9 @@ class Edrone:
         """
         rospy.init_node('drone_control')
 
-        # CONTROLLER CONSTANTS
-        # To be read as ['pitch', 'roll', 'altitude', 'yaw']
-        self.sample_time = 0.10
-        self.Kp = np.array([30, 30, 40, 0])
-        self.Ki = np.array([70, 70, 50, 0])
-        self.Kd = np.array([0, 0, 350, 0])
-        self.max_Ki_margin = np.array([.05, .05, .04, 0.0])
-        self.min_Ki_margin = np.array([0.02, 0.02, .02, 0.0])
-        self.max_values = np.array([1515, 1515, 1800, 1800])
-        self.min_values = np.array([1485, 1485, 1200, 1200])
-        self.base_values = np.array([1500, 1500, 1500, 1500])
-
         # STATE VARIABLES
         self.setpoint = np.zeros(4)
+        self.path = []
         self.drone_position = np.zeros(4)
         self.current_time = time.time()
         self.previous_time = time.time()
@@ -123,11 +125,13 @@ class Edrone:
         self.error = np.zeros(4)
 
         # I/O INITIALIZATION
+        self.target_msg = Pose()
         self.cmd_msg = PlutoMsg()
         self.error_msg = Float64()
 
         # PUBLISHERS
         self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=0)
+        self.target_publisher = rospy.Publisher('/path_target', Pose, queue_size=0)
         self.error_publishers = []
         for axis in self.sense_axes:
             self.error_publishers.append(rospy.Publisher('/%s_error' % axis, Float64, queue_size=1))
@@ -135,15 +139,10 @@ class Edrone:
         # SUBSCRIBERS
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
         rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
+        rospy.Subscriber('/path', PoseArray, self._path_callback)
 
         for index, axis in enumerate(self.sense_axes):
-            rospy.Subscriber(
-                '/pid_tuning_%s' %
-                axis,
-                PidTune,
-                lambda msg: self._set_pid_callback(
-                    msg,
-                    index))
+            rospy.Subscriber('/pid_tuning_%s' % axis, PidTune, lambda msg: self._set_pid_callback(msg, index))
         self.arm()
         print("Initialized Drone")
 
@@ -196,11 +195,9 @@ class Edrone:
         """
         for axis in ('x', 'y', 'z'):
             if axis in self.cartesian_axes:
-                self.drone_position[self.cartesian_axes.index(
-                    axis)] = getattr(msg.poses[0].position, axis)
+                self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
             else:
-                self.drone_position[self.cartesian_axes.index(
-                    axis + '*')] = - getattr(msg.poses[0].position, axis)
+                self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
         # Experimental Constant for scaling
         self.drone_position[:2] /= 7.55
         # Experimental Constant for scaling
@@ -214,13 +211,12 @@ class Edrone:
         self.Ki[index] = msg.Ki * 0.008
         self.Kd[index] = msg.Kd * 0.3
 
-    def publish_command(
-            self,
-            pitch=1500,
-            roll=1500,
-            throttle=1500,
-            yaw=1500,
-            aux4=1500):
+    def _path_callback(self, msg):
+        self.path = []
+        for pose in msg.poses:
+            self.path.append(np.array([pose.x, pose.y, pose.z, 0]))
+
+    def publish_command(self, pitch=1500, roll=1500, throttle=1500, yaw=1500, aux4=1500):
         """
         Send a command to the drone.
         All the arguments are optional, if called without any argument, it stabilizes drone to neutral position.
@@ -267,19 +263,32 @@ class Edrone:
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
 
-    def reach_target(self, setpoint):
+    def is_reached(self, tolerance=.5):
+        return abs(self.error) < tolerance
+
+    def reach_target(self, target):
         """
         Home in to a particular target or setpoint
         setpoint is supplied as a pose numpy array
         """
-        self.setpoint = setpoint
-        while not rospy.is_shutdown():
+        self.setpoint = target
+        while not rospy.is_shutdown() and not self.is_reached():
             self.pid()
+
+    def reach_target_via_path(self, target):
+        self.target_msg.pose = to_pose(target)
+        self.target_publisher.publish(self.target_msg)
+        while not rospy.is_shutdown() and not self.path:
+            rospy.sleep(.1)
+        for pose in self.path:
+            self.reach_target(pose)
+        self.path = []
 
 
 if __name__ == '__main__':
     """
-    Task 1.1
+       Task 1.2
     """
     e_drone = Edrone()
     e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))
+    e_drone.land()
