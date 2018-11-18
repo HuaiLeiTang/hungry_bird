@@ -37,7 +37,6 @@ from geometry_msgs.msg import PoseArray, Pose
 from pid_tune.msg import PidTune
 from plutodrone.msg import PlutoMsg
 from std_msgs.msg import Float64
-from utility import to_pose
 
 # set global printing options for numpy
 np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
@@ -65,6 +64,7 @@ class Edrone:
     >>> my_drone.publish_command() # Return the drone to equilibrium
     <Publisher Output>
 
+    >>> target_pose = np.array([1,4,6,0]) # ['pitch', 'roll', 'altitude', 'yaw']
     >>> my_drone.reach_target(target_pose) # Hover Near A target
     <Publisher outputs>
 
@@ -79,18 +79,18 @@ class Edrone:
 
 
     Regarding Coordinate Systems:
-    Internally the coordinates or poses of the drone are represented as numpy arrays in the order given by the
-    sense_axes and control_axes variable. This ordering does not change.
-    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed if there is a mismatch
-    in the physical orientation of coordinate systems. Currently 'pitch' corresponds to x-axis and so on.
+    Internally the coordinates or poses of the drone are represented as numpy arrays in the
+    order given by the sense_axes and control_axes variable. This ordering does not change.
+    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed
+    if there is a mismatch in the physical orientation of coordinate systems.
+    Currently 'pitch' corresponds to x-axis and so on.
     """
 
+    # AXES AND ORIENTATIONS
     # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
     sense_axes = ('pitch', 'roll', 'altitude', 'yaw')
     control_axes = ('pitch', 'roll', 'throttle', 'yaw')
-
     # You can change the order here if there is a mismatch in coordinate
-    # systems. Use x* etc to give negative axis
     cartesian_axes = ('x', 'y', 'z', 'yaw')
 
     # CONTROLLER CONSTANTS
@@ -144,7 +144,10 @@ class Edrone:
         for index, axis in enumerate(self.sense_axes):
             rospy.Subscriber('/pid_tuning_%s' % axis, PidTune, lambda msg: self._set_pid_callback(msg, index))
         self.arm()
+
         print("Initialized Drone")
+
+    # ACTION VERBS
 
     def disarm(self):
         """
@@ -156,6 +159,7 @@ class Edrone:
         # aux4 is used to arm and disarm the drone
         self.publish_command(aux4=1000)
         rospy.sleep(1)
+
         print('Disarmed')
 
     def arm(self):
@@ -167,6 +171,7 @@ class Edrone:
         rospy.sleep(1)
         self.publish_command(aux4=1500, throttle=1000)
         rospy.sleep(1)
+
         print('Armed')
 
     def land(self):
@@ -180,41 +185,32 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def _yaw_callback(self, msg):
-        """
-        Callback for orientation
-        """
-        if 'yaw' in self.cartesian_axes:
-            self.drone_position[self.cartesian_axes.index('yaw')] = msg.data
-        else:
-            self.drone_position[self.cartesian_axes.index('yaw*')] = - msg.data
+    def is_reached(self, tolerance=.5):
+        return np.all(abs(self.error) < tolerance)
 
-    def _whycon_callback(self, msg):
+    def reach_target(self, target):
         """
-        Callback for coordinates
+        Home in to a particular target or setpoint
+        setpoint is supplied as a pose numpy array
         """
-        for axis in ('x', 'y', 'z'):
-            if axis in self.cartesian_axes:
-                self.drone_position[self.cartesian_axes.index(axis)] = getattr(msg.poses[0].position, axis)
-            else:
-                self.drone_position[self.cartesian_axes.index(axis + '*')] = - getattr(msg.poses[0].position, axis)
-        # Experimental Constant for scaling
-        self.drone_position[:2] /= 7.55
-        # Experimental Constant for scaling
-        self.drone_position[2] = -self.drone_position[2] * .0549 + 3.037
+        self.setpoint = target
+        while not rospy.is_shutdown() and not self.is_reached():
+            self._pid()
 
-    def _set_pid_callback(self, msg, index):
+    def reach_target_via_path(self, target):
         """
-        Callback for setting pid externally
-        """
-        self.Kp[index] = msg.Kp * 0.06
-        self.Ki[index] = msg.Ki * 0.008
-        self.Kd[index] = msg.Kd * 0.3
+        Navigate to a target via path planning using Vrep OMPL Plugin
 
-    def _path_callback(self, msg):
+        """
+        self._to_pose_from_array(self.target_msg.pose, target)
+        self.target_publisher.publish(self.target_msg)
+        while not rospy.is_shutdown() and not self.path:
+            rospy.sleep(.1)  # Wait for path
+        for pose in self.path:
+            self.reach_target(pose)
         self.path = []
-        for pose in msg.poses:
-            self.path.append(np.array([pose.x, pose.y, pose.z, 0]))
+
+    # PUBLISHING VERBS
 
     def publish_command(self, pitch=1500, roll=1500, throttle=1500, yaw=1500, aux4=1500):
         """
@@ -236,22 +232,65 @@ class Edrone:
             self.error_msg.data = self.error[index]
             self.error_publishers[index].publish(self.error_msg)
 
+    # CALLBACKS
+
+    def _yaw_callback(self, msg):
+        """
+        Callback for orientation
+        """
+        self.drone_position[3] = msg.data
+
+    def _whycon_callback(self, msg):
+        """
+        Callback for coordinates
+        """
+        self._from_pose_to_array(msg.poses[0], self.drone_position)
+        # Experimental Constant for scaling
+        self.drone_position[:2] /= 7.55
+        # Experimental Constant for scaling
+        self.drone_position[2] = self.drone_position[2] * .0549 + 3.037
+
+    def _set_pid_callback(self, msg, index):
+        """
+        Callback for setting pid externally
+        """
+        self.Kp[index] = msg.Kp * 0.06
+        self.Ki[index] = msg.Ki * 0.008
+        self.Kd[index] = msg.Kd * 0.3
+
+    def _path_callback(self, msg):
+        self.path = []
+        for pose in msg.poses:
+            array = np.zeros(4)
+            self._from_pose_to_array(pose,array)
+            self.path.append(array)
+
+    # UTILITY FUNCTIONS
+
+    def _to_pose_from_array(self, pose, array):
+        for value, axis in zip(array, self.cartesian_axes[:3]):
+            setattr(pose.position, axis, value)
+
+    def _from_pose_to_array(self, pose, array):
+        for index, axis in enumerate(self.cartesian_axes[:3]):
+            array[index] = getattr(pose.position, axis)
+
     def _calculate_response(self):
         """
-        PID algorithm
+        PID algorithm response calcultion
         """
         dt = self.current_time - self.previous_time
         de = self.error - self.previous_error
         self.previous_error = self.error
         # Condition for integral coefficient to remove reset integral windup
         self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
-            abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+                abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         response += self.base_values
         # Clip to maximum and minimum values
         return np.clip(response, self.min_values, self.max_values)
 
-    def pid(self):
+    def _pid(self):
         """
         PID Controller implementation
         """
@@ -262,27 +301,6 @@ class Edrone:
             response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
-
-    def is_reached(self, tolerance=.5):
-        return abs(self.error) < tolerance
-
-    def reach_target(self, target):
-        """
-        Home in to a particular target or setpoint
-        setpoint is supplied as a pose numpy array
-        """
-        self.setpoint = target
-        while not rospy.is_shutdown() and not self.is_reached():
-            self.pid()
-
-    def reach_target_via_path(self, target):
-        self.target_msg.pose = to_pose(target)
-        self.target_publisher.publish(self.target_msg)
-        while not rospy.is_shutdown() and not self.path:
-            rospy.sleep(.1)
-        for pose in self.path:
-            self.reach_target(pose)
-        self.path = []
 
 
 if __name__ == '__main__':
