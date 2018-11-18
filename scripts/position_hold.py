@@ -35,7 +35,7 @@ import numpy as np
 import rospy
 from geometry_msgs.msg import PoseArray
 from pid_tune.msg import PidTune
-from plutodrone.msg import *
+from plutodrone.msg import PlutoMsg
 from std_msgs.msg import Float64
 
 # set global printing options for numpy
@@ -80,8 +80,8 @@ class Edrone:
     Regarding Coordinate Systems:
     Internally the coordinates or poses of the drone are represented as numpy arrays in the order given by the
     sense_axes and control_axes variable. This ordering does not change.
-    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed if there is a mismatch
-    in the physical orientation of coordinate systems. Currently 'pitch' corresponds to x-axis and so on.
+    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed if there
+    is a mismatch in the physical orientation of coordinate systems. Currently 'pitch' corresponds to x-axis and so on.
     """
 
     # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
