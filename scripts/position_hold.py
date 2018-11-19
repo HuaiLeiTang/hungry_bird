@@ -279,7 +279,8 @@ class Edrone:
 
 if __name__ == '__main__':
     """
-    Task 1.1
+    Task 1.1:
+    Implementing Position Holding of Drone
     """
     e_drone = Edrone()
     e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))

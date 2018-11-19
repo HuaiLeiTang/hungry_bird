@@ -2,8 +2,6 @@
 """
 Submission: Hungry Bird Team 2334
 
-This python file runs a ROS-node of name drone_control which holds the position of e-Drone on the given target dummy.
-
 This node publishes and subscribes the following topics:
         PUBLICATIONS            SUBSCRIPTIONS
         /drone_command          /whycon/poses
@@ -27,7 +25,7 @@ windup. Also the pid output response is clipped within a set of predetermined ma
 internally to avoid code reduplication.
 """
 
-from __future__ import print_function, division
+from __future__ import print_function, division, with_statement
 
 import time
 
@@ -104,6 +102,8 @@ class Edrone:
     max_values = np.array([1515, 1515, 1800, 1800])
     min_values = np.array([1485, 1485, 1200, 1200])
     base_values = np.array([1500, 1500, 1500, 1500])
+    scaling_slope = np.array([0.13245, 0.13245, .0549, 1.000])
+    scaling_intercept = np.array([0, 0, 3.037, 0])
 
     def __init__(self):
         """
@@ -152,11 +152,10 @@ class Edrone:
     def disarm(self):
         """
         Disarm the Drone.
-        Drone should be almost landing as this shuts down engines suddenly.
+        Drone should be almost landing as this shuts down engines abruptly.
         Use land() if soft landing is required.
         """
         rospy.sleep(1)
-        # aux4 is used to arm and disarm the drone
         self.publish_command(aux4=1000)
         rospy.sleep(1)
 
@@ -165,6 +164,7 @@ class Edrone:
     def arm(self):
         """
         Arm the drone.
+        Drone is armed when aux4 is greater than a set value (Defined in lua code)
         Ready for takeoff with a low starting throttle.
         """
         self.disarm()
@@ -185,7 +185,7 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def is_reached(self, tolerance=.5):
+    def is_reached(self, tolerance=.06623):
         return np.all(abs(self.error) < tolerance)
 
     def reach_target(self, target):
@@ -245,10 +245,7 @@ class Edrone:
         Callback for coordinates
         """
         self._from_pose_to_array(msg.poses[0], self.drone_position)
-        # Experimental Constant for scaling
-        self.drone_position[:2] /= 7.55
-        # Experimental Constant for scaling
-        self.drone_position[2] = self.drone_position[2] * .0549 + 3.037
+        self.drone_position = self.drone_position.dot(self.scaling_slope) + self.scaling_intercept
 
     def _set_pid_callback(self, msg, index):
         """
@@ -262,7 +259,7 @@ class Edrone:
         self.path = []
         for pose in msg.poses:
             array = np.zeros(4)
-            self._from_pose_to_array(pose,array)
+            self._from_pose_to_array(pose, array)
             self.path.append(array)
 
     # UTILITY FUNCTIONS
@@ -305,8 +302,20 @@ class Edrone:
 
 if __name__ == '__main__':
     """
-       Task 1.2
+       Task 1.2:
+       Implementing Path Planning to Avoid Obstacles.
+       Visit all goal points while evading the obstacles.
+       Implement path planning through OMPL Plugin For Vrep
+
     """
     e_drone = Edrone()
-    e_drone.reach_target(np.array([1.1094, -.6597, +1.5194, 0.00]))
+    targets = (
+        np.array([]),  # Initial Waypoint
+        np.array([]),  # Goal 1
+        np.array([]),  # Goal 2
+    )
+    for target in targets:
+        e_drone.reach_target_via_path(target)
+        e_drone.publish_error()
+        print("reached")
     e_drone.land()
