@@ -127,14 +127,12 @@ class Edrone:
         # I/O INITIALIZATION
         self.target_msg = Pose()
         self.cmd_msg = PlutoMsg()
-        self.error_msg = Float64()
+        self.error_msg = Pose()
 
         # PUBLISHERS
-        self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=0)
-        self.target_publisher = rospy.Publisher('/path_target', Pose, queue_size=0)
-        self.error_publishers = []
-        for axis in self.sense_axes:
-            self.error_publishers.append(rospy.Publisher('/%s_error' % axis, Float64, queue_size=1))
+        self.command_publisher = rospy.Publisher('/drone_command', PlutoMsg, queue_size=1)
+        self.target_publisher = rospy.Publisher('/path_target', Pose, queue_size=1)
+        self.error_publisher = rospy.Publisher('/drone_error', Pose, queue_size=1)
 
         # SUBSCRIBERS
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
@@ -186,7 +184,7 @@ class Edrone:
         self.disarm()
 
     def is_reached(self, tolerance=.06623):
-        return np.all(abs(self.error) < tolerance)
+        return False#np.all(abs(self.error) < tolerance) 
 
     def reach_target(self, target):
         """
@@ -200,9 +198,10 @@ class Edrone:
     def reach_target_via_path(self, target):
         """
         Navigate to a target via path planning using Vrep OMPL Plugin
-
+        First send a command to Vrep to plan the path
+        Wait for the path. After getting path, reach each point in the path.
         """
-        self._to_pose_from_array(self.target_msg.pose, target)
+        self._to_pose_from_array(self.target_msg, target)
         self.target_publisher.publish(self.target_msg)
         while not rospy.is_shutdown() and not self.path:
             rospy.sleep(.1)  # Wait for path
@@ -228,9 +227,8 @@ class Edrone:
         """
         Publish current error values to respective topics
         """
-        for index, axis in enumerate(self.sense_axes):
-            self.error_msg.data = self.error[index]
-            self.error_publishers[index].publish(self.error_msg)
+        self._to_pose_from_array(self.error_msg, self.error)
+        self.error_publisher.publish(self.error_msg)
 
     # CALLBACKS
 
@@ -294,7 +292,7 @@ class Edrone:
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             self.error = self.setpoint - self.drone_position
-            self.publish_error()
+            # self.publish_error()
             response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
@@ -306,16 +304,16 @@ if __name__ == '__main__':
        Implementing Path Planning to Avoid Obstacles.
        Visit all goal points while evading the obstacles.
        Implement path planning through OMPL Plugin For Vrep
-
     """
     e_drone = Edrone()
-    targets = (
-        np.array([]),  # Initial Waypoint
-        np.array([]),  # Goal 1
-        np.array([]),  # Goal 2
+    goals = (
+        np.array([-.75, .25, 1.225, 0]),  # Initial Waypoint
+        np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
+        np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    for target in targets:
-        e_drone.reach_target_via_path(target)
-        e_drone.publish_error()
-        print("reached")
+    e_drone.reach_target(goals[0])
+##    for goal in goals:
+##        e_drone.reach_target_via_path(goal)
+##        e_drone.publish_error()
+##        print("reached")
     e_drone.land()
