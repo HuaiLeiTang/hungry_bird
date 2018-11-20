@@ -102,8 +102,11 @@ class Edrone:
     max_values = np.array([1515, 1515, 1800, 1800])
     min_values = np.array([1485, 1485, 1200, 1200])
     base_values = np.array([1500, 1500, 1500, 1500])
-    scaling_slope = np.array([0.13245, 0.13245, .0549, 1.000])
-    scaling_intercept = np.array([0, 0, 3.037, 0])
+    error_tolerance = np.array([.06623,.06623,.06623,100])
+    
+    scaling_slope = np.array([-0.13245, -0.13245, -.0549, 1.000]) 
+    scaling_intercept = np.array([0, 0,3.037, 0])
+    
 
     def __init__(self):
         """
@@ -123,7 +126,8 @@ class Edrone:
         self.previous_error = np.zeros(4)
         self.cumulative_error = np.zeros(4)
         self.error = np.zeros(4)
-
+        self.path_received = False
+        
         # I/O INITIALIZATION
         self.target_msg = Pose()
         self.cmd_msg = PlutoMsg()
@@ -137,7 +141,7 @@ class Edrone:
         # SUBSCRIBERS
         rospy.Subscriber('/whycon/poses', PoseArray, self._whycon_callback)
         rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
-        rospy.Subscriber('/path', PoseArray, self._path_callback)
+        rospy.Subscriber('/vrep/waypoints', PoseArray, self._path_callback)
 
         for index, axis in enumerate(self.sense_axes):
             rospy.Subscriber('/pid_tuning_%s' % axis, PidTune, lambda msg: self._set_pid_callback(msg, index))
@@ -183,15 +187,19 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def is_reached(self, tolerance=.06623):
-        return False#np.all(abs(self.error) < tolerance) 
+    def is_reached(self):
+        return np.all(abs(self.error) < self.error_tolerance)
+
+    def set_target(self,target):
+        self.setpoint = target
+        self.error = self.setpoint - self.drone_position
 
     def reach_target(self, target):
         """
         Home in to a particular target or setpoint
         setpoint is supplied as a pose numpy array
         """
-        self.setpoint = target
+        self.set_target(target)
         while not rospy.is_shutdown() and not self.is_reached():
             self._pid()
 
@@ -203,11 +211,16 @@ class Edrone:
         """
         self._to_pose_from_array(self.target_msg, target)
         self.target_publisher.publish(self.target_msg)
-        while not rospy.is_shutdown() and not self.path:
+        while not rospy.is_shutdown() and not self.path_received:
             rospy.sleep(.1)  # Wait for path
+        print(self.path)
         for pose in self.path:
+            print(pose)
+            print('p',self.drone_position)
+            print('e',self.error)
             self.reach_target(pose)
         self.path = []
+        self.path_received = False
 
     # PUBLISHING VERBS
 
@@ -229,6 +242,7 @@ class Edrone:
         """
         self._to_pose_from_array(self.error_msg, self.error)
         self.error_publisher.publish(self.error_msg)
+        print(self.error)
 
     # CALLBACKS
 
@@ -242,8 +256,9 @@ class Edrone:
         """
         Callback for coordinates
         """
+        
         self._from_pose_to_array(msg.poses[0], self.drone_position)
-        self.drone_position = self.drone_position.dot(self.scaling_slope) + self.scaling_intercept
+        self.drone_position = self.drone_position*self.scaling_slope + self.scaling_intercept
 
     def _set_pid_callback(self, msg, index):
         """
@@ -259,6 +274,7 @@ class Edrone:
             array = np.zeros(4)
             self._from_pose_to_array(pose, array)
             self.path.append(array)
+        self.path_received = True
 
     # UTILITY FUNCTIONS
 
@@ -291,8 +307,11 @@ class Edrone:
         """
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
+    
             self.error = self.setpoint - self.drone_position
-            # self.publish_error()
+            #print('e',self.error)
+            #print('p',self.drone_position)
+            #self.publish_error()
             response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
@@ -311,9 +330,11 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    e_drone.reach_target(goals[0])
-##    for goal in goals:
-##        e_drone.reach_target_via_path(goal)
-##        e_drone.publish_error()
-##        print("reached")
-    e_drone.land()
+    #e_drone.reach_target_via_path(goals[0])
+    for goal in goals:
+        e_drone.reach_target_via_path(goal)
+        e_drone.publish_error()
+        print("reached")
+    e_drone.publish_error()
+    e_drone.disarm()
+    
