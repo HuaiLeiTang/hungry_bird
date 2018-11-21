@@ -334,7 +334,6 @@ if __name__ == '__main__':
     for goal in goals:
         e_drone.reach_target_via_path(goal)
         e_drone.publish_error()
-        print("reached")
     e_drone.publish_error()
     e_drone.disarm()
     
