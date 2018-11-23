@@ -94,7 +94,7 @@ class Edrone:
     # CONTROLLER CONSTANTS
     # To be read as ['pitch', 'roll', 'altitude', 'yaw']
     sample_time = 0.10
-    Kp = np.array([30, 30, 40, 0])
+    Kp = np.array([30, 30, 40, 20])
     Ki = np.array([70, 70, 50, 0])
     Kd = np.array([0, 0, 350, 0])
     max_Ki_margin = np.array([.05, .05, .04, 0.0])
@@ -219,7 +219,8 @@ class Edrone:
             print('p',self.drone_position)
             print('e',self.error)
             self.reach_target(pose)
-        self.path = []
+            self.publish_command()
+            self.path = []
         self.path_received = False
 
     # PUBLISHING VERBS
@@ -242,7 +243,6 @@ class Edrone:
         """
         self._to_pose_from_array(self.error_msg, self.error)
         self.error_publisher.publish(self.error_msg)
-        print(self.error)
 
     # CALLBACKS
 
@@ -309,9 +309,9 @@ class Edrone:
         if self.sample_time < self.current_time - self.previous_time:
     
             self.error = self.setpoint - self.drone_position
-            #print('e',self.error)
-            #print('p',self.drone_position)
-            #self.publish_error()
+            print('e',self.error)
+            print('p',self.drone_position)
+            self.publish_error()
             response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
             self.previous_time = self.current_time
@@ -332,8 +332,9 @@ if __name__ == '__main__':
     )
     #e_drone.reach_target_via_path(goals[0])
     for goal in goals:
-        e_drone.reach_target_via_path(goal)
+        e_drone.reach_target(goal)
         e_drone.publish_error()
-    e_drone.publish_error()
+   #e_drone.publish_error()
+    
     e_drone.disarm()
     
