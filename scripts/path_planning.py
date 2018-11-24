@@ -102,11 +102,10 @@ class Edrone:
     max_values = np.array([1515, 1515, 1800, 1800])
     min_values = np.array([1485, 1485, 1200, 1200])
     base_values = np.array([1500, 1500, 1500, 1500])
-    error_tolerance = np.array([.06623,.06623,.06623,100])
-    
-    scaling_slope = np.array([-0.13245, -0.13245, -.0549, 1.000]) 
-    scaling_intercept = np.array([0, 0,3.037, 0])
-    
+    error_tolerance = np.array([.06623, .06623, .06623, 100])
+
+    scaling_slope = np.array([-0.13245, -0.13245, -.0549, 1.000])
+    scaling_intercept = np.array([0, 0, 3.037, 0])
 
     def __init__(self):
         """
@@ -127,7 +126,7 @@ class Edrone:
         self.cumulative_error = np.zeros(4)
         self.error = np.zeros(4)
         self.path_received = False
-        
+
         # I/O INITIALIZATION
         self.target_msg = Pose()
         self.cmd_msg = PlutoMsg()
@@ -190,7 +189,7 @@ class Edrone:
     def is_reached(self):
         return np.all(abs(self.error) < self.error_tolerance)
 
-    def set_target(self,target):
+    def set_target(self, target):
         self.setpoint = target
         self.error = self.setpoint - self.drone_position
 
@@ -216,8 +215,8 @@ class Edrone:
         print(self.path)
         for pose in self.path:
             print(pose)
-            print('p',self.drone_position)
-            print('e',self.error)
+            print('p', self.drone_position)
+            print('e', self.error)
             self.reach_target(pose)
             self.publish_command()
             self.path = []
@@ -256,9 +255,9 @@ class Edrone:
         """
         Callback for coordinates
         """
-        
+
         self._from_pose_to_array(msg.poses[0], self.drone_position)
-        self.drone_position = self.drone_position*self.scaling_slope + self.scaling_intercept
+        self.drone_position = self.drone_position * self.scaling_slope + self.scaling_intercept
 
     def _set_pid_callback(self, msg, index):
         """
@@ -295,7 +294,7 @@ class Edrone:
         self.previous_error = self.error
         # Condition for integral coefficient to remove reset integral windup
         self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
-                abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+            abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
         response += self.base_values
         # Clip to maximum and minimum values
@@ -307,10 +306,10 @@ class Edrone:
         """
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
-    
+
             self.error = self.setpoint - self.drone_position
-            print('e',self.error)
-            print('p',self.drone_position)
+            print('e', self.error)
+            print('p', self.drone_position)
             self.publish_error()
             response = self._calculate_response()
             self.publish_command(**dict(zip(self.control_axes, response)))
@@ -330,11 +329,10 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    #e_drone.reach_target_via_path(goals[0])
+    # e_drone.reach_target_via_path(goals[0])
     for goal in goals:
         e_drone.reach_target(goal)
         e_drone.publish_error()
-   #e_drone.publish_error()
-    
+   # e_drone.publish_error()
+
     e_drone.disarm()
-    
