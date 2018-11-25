@@ -31,6 +31,7 @@ import time
 
 import numpy as np
 import rospy
+from enum import Enum
 from geometry_msgs.msg import PoseArray, Pose
 from pid_tune.msg import PidTune
 from plutodrone.msg import PlutoMsg
@@ -46,13 +47,22 @@ class Edrone:
     It is used to control the simulated or real E-Drone using an inbuilt pid controller.
     Commands are sent to the drone which continues following one command till the next is sent.
 
+    Regarding Coordinate Systems:
+    Internally the coordinates or poses of the drone are represented as numpy arrays in the
+    order given by the sense_axes and control_axes variable. This ordering does not change.
+    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed
+    if there is a mismatch in the physical orientation of coordinate systems.
+    Currently 'pitch' corresponds to x-axis and so on.
+
     Usage:
 
+    To initialize Drone:
     >>> my_drone = Edrone()     # First disarmed for safety reasons
     Disarmed
     Armed
     Initialized Drone
 
+    To publish a command to the Drone:
     >>> my_drone.publish_command(throttle = 1550) #base value is 1500
     <Publisher Output>
 
@@ -74,26 +84,17 @@ class Edrone:
 
     >>> my_drone.land()
     Disarmed
-
-
-    Regarding Coordinate Systems:
-    Internally the coordinates or poses of the drone are represented as numpy arrays in the
-    order given by the sense_axes and control_axes variable. This ordering does not change.
-    The order of the input coordinates is dictated by the cartesian_axes variable which may be changed
-    if there is a mismatch in the physical orientation of coordinate systems.
-    Currently 'pitch' corresponds to x-axis and so on.
     """
 
     # AXES AND ORIENTATIONS
     # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
-    sense_axes = ('pitch', 'roll', 'altitude', 'yaw')
-    control_axes = ('pitch', 'roll', 'throttle', 'yaw')
+    sense_axes = Enum('sense_axes', 'pitch roll altitude yaw')
+    control_axes = Enum('control_axes', 'pitch roll throttle yaw')
     # You can change the order here if there is a mismatch in coordinate
-    cartesian_axes = ('x', 'y', 'z', 'yaw')
+    cartesian_axes = Enum('cartesian_axes', 'x y z')
 
     # CONTROLLER CONSTANTS
     # To be read as ['pitch', 'roll', 'altitude', 'yaw']
-    sample_time = 0.10
     Kp = np.array([30, 30, 40, 20])
     Ki = np.array([70, 70, 50, 0])
     Kd = np.array([0, 0, 350, 0])
@@ -104,6 +105,9 @@ class Edrone:
     base_values = np.array([1500, 1500, 1500, 1500])
     error_tolerance = np.array([.06623, .06623, .06623, 100])
 
+    sample_time = 0.10
+
+    # TRANSFORMATION CONSTANTS
     scaling_slope = np.array([-0.13245, -0.13245, -.0549, 1.000])
     scaling_intercept = np.array([0, 0, 3.037, 0])
 
@@ -142,8 +146,8 @@ class Edrone:
         rospy.Subscriber('/drone_yaw', Float64, self._yaw_callback)
         rospy.Subscriber('/vrep/waypoints', PoseArray, self._path_callback)
 
-        for index, axis in enumerate(self.sense_axes):
-            rospy.Subscriber('/pid_tuning_%s' % axis, PidTune, lambda msg: self._set_pid_callback(msg, index))
+        for axis in self.sense_axes:
+            rospy.Subscriber('/pid_tuning_%s' % axis.name, PidTune, lambda msg: self._set_pid_callback(msg, axis.value))
         self.arm()
 
         print("Initialized Drone")
@@ -278,12 +282,12 @@ class Edrone:
     # UTILITY FUNCTIONS
 
     def _to_pose_from_array(self, pose, array):
-        for value, axis in zip(array, self.cartesian_axes[:3]):
-            setattr(pose.position, axis, value)
+        for axis in self.cartesian_axes:
+            setattr(pose.position, axis.name, array[axis.value])
 
     def _from_pose_to_array(self, pose, array):
-        for index, axis in enumerate(self.cartesian_axes[:3]):
-            array[index] = getattr(pose.position, axis)
+        for axis in self.cartesian_axes:
+            array[axis.value] = getattr(pose.position, axis.name)
 
     def _calculate_response(self):
         """
@@ -292,12 +296,22 @@ class Edrone:
         dt = self.current_time - self.previous_time
         de = self.error - self.previous_error
         self.previous_error = self.error
+
         # Condition for integral coefficient to remove reset integral windup
         self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
-            abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+                abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+
+        # PID Calculation
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
+
+        # Rotation to the drone frame
+        yaw = np.radians(self.error[3])
+        c, s = np.cos(yaw), np.sin(yaw)
+        r = np.array([[c, -s], [s, c]])
+        response[:2] = r @ response[:2]
+
+        # Add Base values and Clip to maximum and minimum values
         response += self.base_values
-        # Clip to maximum and minimum values
         return np.clip(response, self.min_values, self.max_values)
 
     def _pid(self):
@@ -306,13 +320,12 @@ class Edrone:
         """
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
-
             self.error = self.setpoint - self.drone_position
             print('e', self.error)
             print('p', self.drone_position)
             self.publish_error()
             response = self._calculate_response()
-            self.publish_command(**dict(zip(self.control_axes, response)))
+            self.publish_command(**{axis.name: response[axis.value] for axis in self.control_axes})
             self.previous_time = self.current_time
 
 
@@ -333,6 +346,6 @@ if __name__ == '__main__':
     for goal in goals:
         e_drone.reach_target(goal)
         e_drone.publish_error()
-   # e_drone.publish_error()
+    # e_drone.publish_error()
 
     e_drone.disarm()
