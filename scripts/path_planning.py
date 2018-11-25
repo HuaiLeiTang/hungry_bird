@@ -299,7 +299,7 @@ class Edrone:
 
         # Condition for integral coefficient to remove reset integral windup
         self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
-                abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+            abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
 
         # PID Calculation
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
