@@ -308,8 +308,7 @@ class Edrone:
         yaw = np.radians(self.error[3])
         c, s = np.cos(yaw), np.sin(yaw)
         r = np.array([[c, -s], [s, c]])
-        response[:2] = r @ response[:2]
-
+        response[:2] = np.cross(r, response[:2])
         # Add Base values and Clip to maximum and minimum values
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
