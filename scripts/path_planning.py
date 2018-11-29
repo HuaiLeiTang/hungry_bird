@@ -23,6 +23,12 @@ loop in the reach_target function where it calculates the error and the pid resp
 modified such that the integral coefficient only appears in a set range of errors in order to avoid reset integral
 windup. Also the pid output response is clipped within a set of predetermined maximum and minimum values. We used numpy
 internally to avoid code reduplication.
+
+Tackling the problem of yaw:
+The Edrone was found to accumulate yaw as it traversed the path causing it to deviate irreversibly.To solve this problem
+rotation of axes was used.The angle of deviation of Edrone from original path was calculated and subsequently rotation
+matrix was applied to transform the response vector calculated in the drone frame to the path vector calculated in the 
+world frame.
 """
 
 from __future__ import print_function, division, with_statement
@@ -309,9 +315,11 @@ class Edrone:
         # PID Calculation
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
 
-        # Rotation to the drone frame
+        # Rotation to the world frame
+        # Rotation matrix is computed here
+        # Source : https://en.wikipedia.org/wiki/Rotation_of_axes
         yaw = np.radians(self.error[3])
-        c, s = np.cos(yaw), np.sin(yaw)
+        c, s = np.cos(yaw), np.sin(yaw)  
         print('assa',response)
         x,y=response[:2]
         response[0] = c*x-s*y
