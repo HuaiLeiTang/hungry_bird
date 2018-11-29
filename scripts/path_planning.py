@@ -218,7 +218,6 @@ class Edrone:
         self.target_publisher.publish(self.target_msg)
         while not rospy.is_shutdown() and not self.path_received:
             rospy.sleep(.1)  # Wait for path
-        print(len(self.path))
 
     def reach_target_via_path(self, target):
         """
@@ -230,9 +229,6 @@ class Edrone:
 
         
         for pose in self.path[::2]:
-            #print(pose)
-            #print('p', self.drone_position)
-            #print('e', self.error)
             self.reach_target(pose,tolerance = [.1023, .10623, .10623, 100])
             self.publish_command()
 
@@ -320,11 +316,9 @@ class Edrone:
         # Source : https://en.wikipedia.org/wiki/Rotation_of_axes
         yaw = np.radians(self.error[3])
         c, s = np.cos(yaw), np.sin(yaw)  
-        print('assa',response)
         x,y=response[:2]
         response[0] = c*x-s*y
         response[1] =s*x+c*y
-        print ('as',response)
 
         # Add Base values and Clip to maximum and minimum values
         response += self.base_values
@@ -337,8 +331,6 @@ class Edrone:
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             self.error = self.setpoint - self.drone_position
-            print('e', self.error)
-            print('p', self.drone_position)
             self.publish_error()
             response = self._calculate_response()
             self.publish_command(**{axis.name: response[axis.value] for axis in self.control_axes})
@@ -361,21 +353,17 @@ if __name__ == '__main__':
     #e_drone.publish_command(yaw=2000)
     #time.sleep(6)
     
-    #e_drone.get_path(goals[0])
+    e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
     
-    #e_drone.get_path(goals[1])
+    e_drone.get_path(goals[1])
     e_drone.reach_target(np.array([.5,-.20,1,0]),tolerance=[.1023, .1623, .1023, 1000])
     e_drone.reach_target(goals[1])
     
-    #e_drone.get_path(goals[2])
+    e_drone.get_path(goals[2])
     e_drone.reach_target(goals[2])
 
-    #e_drone.get_path(goals[0])
+    e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
-    #for goal in goals:
- #       e_drone.reach_target(goal)
-  #      e_drone.publish_error()
-    # e_drone.publish_error()
     e_drone.disarm()
     
