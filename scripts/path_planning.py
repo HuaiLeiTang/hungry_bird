@@ -26,7 +26,7 @@ internally to avoid code reduplication.
 """
 
 from __future__ import print_function, division, with_statement
-
+from itertools import count
 import time
 
 import numpy as np
@@ -88,14 +88,14 @@ class Edrone:
 
     # AXES AND ORIENTATIONS
     # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
-    sense_axes = Enum('sense_axes', 'pitch roll altitude yaw')
-    control_axes = Enum('control_axes', 'pitch roll throttle yaw')
+    sense_axes = Enum('sense_axes', zip('pitch roll altitude yaw'.split(),count()))
+    control_axes = Enum('control_axes', zip('pitch roll throttle yaw'.split(),count()))
     # You can change the order here if there is a mismatch in coordinate
-    cartesian_axes = Enum('cartesian_axes', 'x y z')
+    cartesian_axes = Enum('cartesian_axes', zip('x y z'.split(),count()))
 
     # CONTROLLER CONSTANTS
     # To be read as ['pitch', 'roll', 'altitude', 'yaw']
-    Kp = np.array([30, 30, 40, 20])
+    Kp = np.array([30, 30, 40, 0])
     Ki = np.array([70, 70, 50, 0])
     Kd = np.array([0, 0, 350, 0])
     max_Ki_margin = np.array([.05, .05, .04, 0.0])
@@ -103,8 +103,6 @@ class Edrone:
     max_values = np.array([1515, 1515, 1800, 1800])
     min_values = np.array([1485, 1485, 1200, 1200])
     base_values = np.array([1500, 1500, 1500, 1500])
-    error_tolerance = np.array([.06623, .06623, .06623, 100])
-
     sample_time = 0.10
 
     # TRANSFORMATION CONSTANTS
@@ -190,21 +188,31 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def is_reached(self):
-        return np.all(abs(self.error) < self.error_tolerance)
+    def is_reached(self,error_tolerance = np.array([.06623, .06623, .06623, 100])):
+        return np.all(abs(self.error) < error_tolerance)
 
     def set_target(self, target):
         self.setpoint = target
         self.error = self.setpoint - self.drone_position
 
-    def reach_target(self, target):
+    def reach_target(self, target , tolerance=[.06623, .06623, .06623, 100]):
         """
         Home in to a particular target or setpoint
         setpoint is supplied as a pose numpy array
         """
         self.set_target(target)
-        while not rospy.is_shutdown() and not self.is_reached():
+        while not rospy.is_shutdown() and not self.is_reached(tolerance):
             self._pid()
+        self.publish_command(aux4=1320)
+
+    def get_path(self,target):
+        self.path = []
+        self.path_received = False
+        self._to_pose_from_array(self.target_msg, target)
+        self.target_publisher.publish(self.target_msg)
+        while not rospy.is_shutdown() and not self.path_received:
+            rospy.sleep(.1)  # Wait for path
+        print(len(self.path))
 
     def reach_target_via_path(self, target):
         """
@@ -212,19 +220,16 @@ class Edrone:
         First send a command to Vrep to plan the path
         Wait for the path. After getting path, reach each point in the path.
         """
-        self._to_pose_from_array(self.target_msg, target)
-        self.target_publisher.publish(self.target_msg)
-        while not rospy.is_shutdown() and not self.path_received:
-            rospy.sleep(.1)  # Wait for path
-        print(self.path)
-        for pose in self.path:
-            print(pose)
-            print('p', self.drone_position)
-            print('e', self.error)
-            self.reach_target(pose)
+        self.get_path(target)
+
+        
+        for pose in self.path[::2]:
+            #print(pose)
+            #print('p', self.drone_position)
+            #print('e', self.error)
+            self.reach_target(pose,tolerance = [.1023, .10623, .10623, 100])
             self.publish_command()
-            self.path = []
-        self.path_received = False
+
 
     # PUBLISHING VERBS
 
@@ -306,9 +311,10 @@ class Edrone:
 
         # Rotation to the drone frame
         yaw = np.radians(self.error[3])
-        c, s = np.cos(yaw), np.sin(yaw)
-        r = np.array([[c, -s], [s, c]])
-        response[:2] = np.cross(r, response[:2])
+        #c, s = np.cos(yaw), np.sin(yaw)
+        #r = np.array([[c, -s], [s, c]])
+        #response[:2] = np.cross(r, response[:2])
+
         # Add Base values and Clip to maximum and minimum values
         response += self.base_values
         return np.clip(response, self.min_values, self.max_values)
@@ -320,8 +326,8 @@ class Edrone:
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             self.error = self.setpoint - self.drone_position
-            print('e', self.error)
-            print('p', self.drone_position)
+            #print('e', self.error)
+            #print('p', self.drone_position)
             self.publish_error()
             response = self._calculate_response()
             self.publish_command(**{axis.name: response[axis.value] for axis in self.control_axes})
@@ -341,10 +347,24 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    # e_drone.reach_target_via_path(goals[0])
-    for goal in goals:
-        e_drone.reach_target(goal)
-        e_drone.publish_error()
-    # e_drone.publish_error()
+    e_drone.publish_command(yaw=2000)
+    time.sleep(6)
+    '''
+    e_drone.get_path(goals[0])
+    e_drone.reach_target(goals[0])
+    
+    e_drone.get_path(goals[1])
+    e_drone.reach_target(np.array([.5,-.20,1,0]),tolerance=[.1023, .1623, .1023, 100])
+    e_drone.reach_target(goals[1])
+    
+    e_drone.get_path(goals[2])
+    e_drone.reach_target(goals[2])
 
+    e_drone.get_path(goals[0])
+    e_drone.reach_target(goals[0])
+    #for goal in goals:
+ #       e_drone.reach_target(goal)
+  #      e_drone.publish_error()
+    # e_drone.publish_error()
     e_drone.disarm()
+    '''
