@@ -27,7 +27,7 @@ internally to avoid code reduplication.
 Tackling the problem of yaw:
 The Edrone was found to accumulate yaw as it traversed the path causing it to deviate irreversibly.To solve this problem
 rotation of axes was used.The angle of deviation of Edrone from original path was calculated and subsequently rotation
-matrix was applied to transform the response vector calculated in the drone frame to the path vector calculated in the 
+matrix was applied to transform the response vector calculated in the drone frame to the path vector calculated in the
 world frame.
 """
 
@@ -94,10 +94,10 @@ class Edrone:
 
     # AXES AND ORIENTATIONS
     # Ordering of values in numpy arrays used internally to represent pose.This order should not be changed.
-    sense_axes = Enum('sense_axes', zip('pitch roll altitude yaw'.split(),count()))
-    control_axes = Enum('control_axes', zip('pitch roll throttle yaw'.split(),count()))
+    sense_axes = Enum('sense_axes', zip('pitch roll altitude yaw'.split(), count()))
+    control_axes = Enum('control_axes', zip('pitch roll throttle yaw'.split(), count()))
     # You can change the order here if there is a mismatch in coordinate
-    cartesian_axes = Enum('cartesian_axes', zip('x y z'.split(),count()))
+    cartesian_axes = Enum('cartesian_axes', zip('x y z'.split(), count()))
 
     # CONTROLLER CONSTANTS
     # To be read as ['pitch', 'roll', 'altitude', 'yaw']
@@ -194,14 +194,14 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def is_reached(self,error_tolerance):
+    def is_reached(self, error_tolerance):
         return np.all(abs(self.error) < error_tolerance)
 
     def set_target(self, target):
         self.setpoint = target
         self.error = self.setpoint - self.drone_position
 
-    def reach_target(self, target , tolerance=[.0823, .0823, .0823, 1000]):
+    def reach_target(self, target, tolerance=[.0823, .0823, .0823, 1000]):
         """
         Home in to a particular target or setpoint
         setpoint is supplied as a pose numpy array
@@ -211,7 +211,7 @@ class Edrone:
             self._pid()
         self.publish_command(aux4=1320)
 
-    def get_path(self,target):
+    def get_path(self, target):
         self.path = []
         self.path_received = False
         self._to_pose_from_array(self.target_msg, target)
@@ -227,11 +227,9 @@ class Edrone:
         """
         self.get_path(target)
 
-        
         for pose in self.path[::2]:
-            self.reach_target(pose,tolerance = [.1023, .10623, .10623, 100])
+            self.reach_target(pose, tolerance=[.1023, .10623, .10623, 100])
             self.publish_command()
-
 
     # PUBLISHING VERBS
 
@@ -315,10 +313,10 @@ class Edrone:
         # Rotation matrix is computed here
         # Source : https://en.wikipedia.org/wiki/Rotation_of_axes
         yaw = np.radians(self.error[3])
-        c, s = np.cos(yaw), np.sin(yaw)  
-        x,y=response[:2]
-        response[0] = c*x-s*y
-        response[1] =s*x+c*y
+        c, s = np.cos(yaw), np.sin(yaw)
+        x, y = response[:2]
+        response[0] = c * x - s * y
+        response[1] = s * x + c * y
 
         # Add Base values and Clip to maximum and minimum values
         response += self.base_values
@@ -350,20 +348,19 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    #e_drone.publish_command(yaw=2000)
-    #time.sleep(6)
-    
+    # e_drone.publish_command(yaw=2000)
+    # time.sleep(6)
+
     e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
-    
+
     e_drone.get_path(goals[1])
-    e_drone.reach_target(np.array([.5,-.20,1,0]),tolerance=[.1023, .1623, .1023, 1000])
+    e_drone.reach_target(np.array([.5, -.20, 1, 0]), tolerance=[.1023, .1623, .1023, 1000])
     e_drone.reach_target(goals[1])
-    
+
     e_drone.get_path(goals[2])
     e_drone.reach_target(goals[2])
 
     e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
     e_drone.disarm()
-    
