@@ -311,9 +311,12 @@ class Edrone:
 
         # Rotation to the drone frame
         yaw = np.radians(self.error[3])
-        #c, s = np.cos(yaw), np.sin(yaw)
-        #r = np.array([[c, -s], [s, c]])
-        #response[:2] = np.cross(r, response[:2])
+        c, s = np.cos(yaw), np.sin(yaw)
+        print('assa',response)
+        x,y=response[:2]
+        response[0] = c*x-s*y
+        response[1] =s*x+c*y
+        print ('as',response)
 
         # Add Base values and Clip to maximum and minimum values
         response += self.base_values
@@ -326,8 +329,8 @@ class Edrone:
         self.current_time = time.time()
         if self.sample_time < self.current_time - self.previous_time:
             self.error = self.setpoint - self.drone_position
-            #print('e', self.error)
-            #print('p', self.drone_position)
+            print('e', self.error)
+            print('p', self.drone_position)
             self.publish_error()
             response = self._calculate_response()
             self.publish_command(**{axis.name: response[axis.value] for axis in self.control_axes})
@@ -347,9 +350,9 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    e_drone.publish_command(yaw=2000)
-    time.sleep(6)
-    '''
+    #e_drone.publish_command(yaw=2000)
+    #time.sleep(6)
+    
     e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
     
@@ -367,4 +370,4 @@ if __name__ == '__main__':
   #      e_drone.publish_error()
     # e_drone.publish_error()
     e_drone.disarm()
-    '''
+    
