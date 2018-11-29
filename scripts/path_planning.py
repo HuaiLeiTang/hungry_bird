@@ -188,14 +188,14 @@ class Edrone:
             rospy.sleep(.5)
         self.disarm()
 
-    def is_reached(self,error_tolerance = np.array([.06623, .06623, .06623, 100])):
+    def is_reached(self,error_tolerance):
         return np.all(abs(self.error) < error_tolerance)
 
     def set_target(self, target):
         self.setpoint = target
         self.error = self.setpoint - self.drone_position
 
-    def reach_target(self, target , tolerance=[.06623, .06623, .06623, 100]):
+    def reach_target(self, target , tolerance=[.0823, .0823, .0823, 1000]):
         """
         Home in to a particular target or setpoint
         setpoint is supplied as a pose numpy array
@@ -353,17 +353,17 @@ if __name__ == '__main__':
     #e_drone.publish_command(yaw=2000)
     #time.sleep(6)
     
-    e_drone.get_path(goals[0])
+    #e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
     
-    e_drone.get_path(goals[1])
-    e_drone.reach_target(np.array([.5,-.20,1,0]),tolerance=[.1023, .1623, .1023, 100])
+    #e_drone.get_path(goals[1])
+    e_drone.reach_target(np.array([.5,-.20,1,0]),tolerance=[.1023, .1623, .1023, 1000])
     e_drone.reach_target(goals[1])
     
-    e_drone.get_path(goals[2])
+    #e_drone.get_path(goals[2])
     e_drone.reach_target(goals[2])
 
-    e_drone.get_path(goals[0])
+    #e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
     #for goal in goals:
  #       e_drone.reach_target(goal)
