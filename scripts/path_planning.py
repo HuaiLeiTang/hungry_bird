@@ -50,19 +50,23 @@ np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
 
 class Edrone:
     """
+    DESCRIPTION:
     Class corresponding to the E-Drone
     It is used to control the simulated or real E-Drone using an inbuilt pid controller.
     Commands are sent to the drone which continues following one command till the next is sent.
 
-    Regarding Coordinate Systems:
+    COORDINATE SYSTEMS:
     Internally the coordinates or poses of the drone are represented as numpy arrays in the
     order given by the sense_axes and control_axes variable. This ordering does not change.
     The order of the input coordinates is dictated by the cartesian_axes variable which may be changed
     if there is a mismatch in the physical orientation of coordinate systems.
     Currently 'pitch' corresponds to x-axis and so on.
 
-    Usage:
+    UNITS:
+    x,y,z -> Vrep World Frame Unit
+    way -> Degrees
 
+    USAGE:
     To initialize Drone:
     >>> my_drone = Edrone()     # First disarmed for safety reasons
     Disarmed
@@ -70,27 +74,22 @@ class Edrone:
     Initialized Drone
 
     To publish a command to the Drone:
-    >>> my_drone.publish_command(throttle = 1550) #base value is 1500
-    <Publisher Output>
+    >>> my_drone.publish_command(throttle = 1550)     # base value is 1500
 
-    >>> my_drone.publish_command(roll=1550)  #base value is 1500
-    <Publisher Output>
+    >>> my_drone.publish_command(roll=1550)           # base value is 1500
 
-    >>> my_drone.publish_command() # Return the drone to equilibrium
-    <Publisher Output>
+    >>> my_drone.publish_command()                    # Return the drone to equilibrium
 
-    >>> target_pose = np.array([1,4,6,0]) # ['pitch', 'roll', 'altitude', 'yaw']
-    >>> my_drone.reach_target(target_pose) # Hover Near A target
-    <Publisher outputs>
+    >>> target_pose = np.array([1,4,6,0])             # ['pitch', 'roll', 'altitude', 'yaw']
+    >>> my_drone.reach_target(target_pose)            # Hover Near A target
 
-    >>> my_drone.disarm()  # Disarm Drone
+    >>> my_drone.disarm()                             # Disarm Drone
     Disarmed
 
-    >>> my_drone.arm() # Ready For Action
+    >>> my_drone.arm()                                # Ready For Action
     Armed
 
-    >>> my_drone.land()
-    Disarmed
+    >>> my_drone.reach_target_via_path(target_pose)   # Path Planning to target
     """
 
     # AXES AND ORIENTATIONS
@@ -204,8 +203,9 @@ class Edrone:
 
     def reach_target(self, target, tolerance=[.0823, .0823, .0823, 1000]):
         """
-        Home in to a particular target or setpoint
+        Home in to a particular target or setpoint using a pid algorithm
         setpoint is supplied as a pose numpy array
+        Does not apply path planning
         """
         self.set_target(target)
         while not rospy.is_shutdown() and not self.is_reached(tolerance):
@@ -213,6 +213,11 @@ class Edrone:
         self.publish_command(aux4=1320)
 
     def get_path(self, target):
+        """
+        Acquire a path to target from the OMPL plugin via VREP.
+        First send a command to Vrep to plan the path.
+        Then wait for the path.  Path variable is updated in a callback.
+        """
         self.path = []
         self.path_received = False
         self._to_pose_from_array(self.target_msg, target)
@@ -222,9 +227,8 @@ class Edrone:
 
     def reach_target_via_path(self, target):
         """
-        Navigate to a target via path planning using Vrep OMPL Plugin
-        First send a command to Vrep to plan the path
-        Wait for the path. After getting path, reach each point in the path.
+        Navigate to a target via path planning using Vrep OMPL Plugin.
+        After getting path, reach each point in the path.
         """
         self.get_path(target)
 
@@ -248,7 +252,8 @@ class Edrone:
 
     def publish_error(self):
         """
-        Publish current error values to respective topics
+        Publish current error values to respective topics.
+        Useful for debugging purposes.
         """
         self._to_pose_from_array(self.error_msg, self.error)
         self.error_publisher.publish(self.error_msg)
@@ -257,13 +262,19 @@ class Edrone:
 
     def _yaw_callback(self, msg):
         """
-        Callback for orientation
+        Callback for orientation.
+        Yaw is already recieved in the world frame so there is no need for a transform.
+        The yaw obtained from whycon is not very accurate so this is uded instead.
         """
         self.drone_position[3] = msg.data
 
     def _whycon_callback(self, msg):
         """
         Callback for coordinates
+        The conversion form whycon frame to world frame happpeds here
+        WORLD_COORDS = WHYCON_COORDS * self.scaling_slope + self.scaling_intercept
+        This assumes a linear transformation however on further inspection, we find that it is
+        not true for all positions. Regardless it is accurate enough for a good range of values.
         """
 
         self._from_pose_to_array(msg.poses[0], self.drone_position)
@@ -271,13 +282,20 @@ class Edrone:
 
     def _set_pid_callback(self, msg, index):
         """
-        Callback for setting pid externally
+        Callback for setting pid externally.
+        Used for PID setting, Now unused.
         """
         self.Kp[index] = msg.Kp * 0.06
         self.Ki[index] = msg.Ki * 0.008
         self.Kd[index] = msg.Kd * 0.3
 
     def _path_callback(self, msg):
+        """
+        Callback for receiving the path from VREP
+        PATH is received as a posearray which is converted to a numpy array
+        and then stored in self.path variable
+        On completion of task, self.path_recieved is true
+        """
         self.path = []
         for pose in msg.poses:
             array = np.zeros(4)
