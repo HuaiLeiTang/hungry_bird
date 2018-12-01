@@ -33,11 +33,12 @@ world frame.
 
 from __future__ import print_function, division, with_statement
 from itertools import count
+from enum import Enum
 import time
 
 import numpy as np
+
 import rospy
-from enum import Enum
 from geometry_msgs.msg import PoseArray, Pose
 from pid_tune.msg import PidTune
 from plutodrone.msg import PlutoMsg
@@ -303,8 +304,8 @@ class Edrone:
         self.previous_error = self.error
 
         # Condition for integral coefficient to remove reset integral windup
-        self.cumulative_error = np.where((self.min_Ki_margin < abs(self.error)) & (
-            abs(self.error) < self.max_Ki_margin), self.cumulative_error + self.error * dt, 0)
+        self.cumulative_error += np.where((self.min_Ki_margin < abs(self.error)) & (
+            abs(self.error) < self.max_Ki_margin), self.error * dt, 0)
 
         # PID Calculation
         response = self.Kp * self.error + self.Ki * self.cumulative_error + self.Kd * (de / dt)
@@ -348,8 +349,6 @@ if __name__ == '__main__':
         np.array([1.75, 0.075, 0.75, 0]),  # Goal 1
         np.array([-.75, -1.1, 0.675, 0]),  # Goal 2
     )
-    # e_drone.publish_command(yaw=2000)
-    # time.sleep(6)
 
     e_drone.get_path(goals[0])
     e_drone.reach_target(goals[0])
